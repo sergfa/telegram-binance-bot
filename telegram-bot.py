@@ -21,10 +21,11 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+
 tickers_ema = {}
-tickers_ema_prev = {}
 bbotHasError = False
 supported_tickets = ['BTCUSDT']
+sent_signals = {}
 
 
 # Define a few command handlers. These usually take the two arguments update and
@@ -40,17 +41,22 @@ def start(update: Update, context: CallbackContext) -> None:
 
 def subscribe_response(context: CallbackContext) -> None:
     """Send the alarm message."""
-    
+    global tickers_ema, bbotHasError, supported_tickets, sent_signals
     job = context.job
     ticker = job.name.split("_")[1]
+    prev_signal = sent_signals.get(job.name, '')
     logger.info(f'subscribe_response for ticket: {ticker}')
-    prev_data = tickers_ema_prev.get(ticker, {"buy": False, "sell": False})
     curr_data = tickers_ema.get(ticker, {"buy": False, "sell": False})
-    logger.info(f'subscribe_response ema data prev: {prev_data}, current: {curr_data}')
-    if curr_data['buy'] and not prev_data['buy']:
+    logger.info(f'subscribe_response current ema data: {curr_data}, prev signal: { prev_signal}')
+    if bbotHasError:
+        logger.info(f'subscribe_response bot has error, response will not be sent')
+        return
+    if curr_data['buy'] and prev_signal != 'buy':
         context.bot.send_message(job.context, text=f'BUY ALERT {ticker}')
-    elif curr_data['sell'] and not prev_data['sell']:
+        sent_signals[job.name] = 'buy'
+    elif curr_data['sell'] and  prev_signal != 'sell':
         context.bot.send_message(job.context, text=f'SELL ALERT {ticker}')
+        sent_signals[job.name] = 'sell'
              
 
 def remove_job_if_exists(name: str, context: CallbackContext) -> bool:
@@ -79,7 +85,7 @@ def subscribe(update: Update, context: CallbackContext) -> None:
         context.job_queue.run_repeating(subscribe_response, 60, context=chat_id, name=job_name)
         
 
-        text = f'You successfully subscribed to ticker: {ticker}!'
+        text = f'You successfully subscribed to ticker: {ticker}'
         if job_removed:
             text += ' Old one was removed.'
         update.message.reply_text(text)
@@ -90,6 +96,7 @@ def subscribe(update: Update, context: CallbackContext) -> None:
 
 def unsubscribe(update: Update, context: CallbackContext) -> None:
     """Remove the job if the user changed their mind."""
+    global sent_signals
     chat_id = update.message.chat_id
     ticker = str(context.args[0])
     if not (ticker and ticker.strip()):
@@ -98,20 +105,21 @@ def unsubscribe(update: Update, context: CallbackContext) -> None:
 
     job_name = f'{str(chat_id)}_{ticker}'
     job_removed = remove_job_if_exists(name=job_name, context= context)
-    text = f'You successfully unsubscribed from {ticker}!' if job_removed else f'You have no active signal for ticker {ticker}.'
+    sent_signals.pop(job_name, None) 
+    text = f'You successfully unsubscribed from {ticker}' if job_removed else f'You have no active signal for ticker {ticker}'
     update.message.reply_text(text)
 
 
 def runBBot(interval, start, tickers):
+    global tickers_ema, bbotHasError, supported_tickets
     bClient = BinanceClient(testnet=True)
-    intervalStr = convertToInterval(interval,'m')
-    startStr=convertToStartTime(start, 'min')
+    intervalStr = convertToInterval(interval,'h')
+    startStr=convertToStartTime(start, 'hours')
     cycle = 0
     while (True):
         cycle +=1
         logger.info(f'Running step #{cycle}')
         try:
-            tickers_ema_prev = tickers_ema
             tickers_ema = bClient.ema_checker(interval=intervalStr, start=startStr, tickers=tickers)
             logger.info(f'Ema results #{tickers_ema}')
             bbotHasError = False                   
@@ -121,7 +129,7 @@ def runBBot(interval, start, tickers):
         time.sleep(60)
 
 def __runBBot__():
-    runBBot(5, 240, ['BTCUSDT']) 
+    runBBot(1, 240, ['BTCUSDT']) 
 
 def main() -> None:
     """Run bot."""
