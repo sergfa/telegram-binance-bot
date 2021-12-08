@@ -11,8 +11,11 @@ from dotenv import dotenv_values
 
 from binance_client import BinanceClient
 from binance_time_utils import convertToStartTime, convertToInterval
+from db_manager import DbManager
 
 env = dotenv_values('.env')
+
+db = DbManager("bot.db")
 
 # Enable logging
 logging.basicConfig(
@@ -26,6 +29,7 @@ tickers_ema = {}
 bbotHasError = False
 supported_tickets = ['BTCUSDT']
 sent_signals = {}
+db = DbManager("bot.db")
 
 
 # Define a few command handlers. These usually take the two arguments update and
@@ -83,6 +87,7 @@ def subscribe(update: Update, context: CallbackContext) -> None:
         job_removed = remove_job_if_exists(name=job_name, context=context)
         # context.job_queue.run_once(alarm, due, context=chat_id, name=str(chat_id))
         context.job_queue.run_repeating(subscribe_response, 60, context=chat_id, name=job_name)
+        db.insertJob(str(chat_id), ticker)
         
 
         text = f'You successfully subscribed to ticker: {ticker}'
@@ -122,14 +127,19 @@ def unsubscribe(update: Update, context: CallbackContext) -> None:
     chat_id = update.message.chat_id
     ticker = str(context.args[0])
     if not (ticker and ticker.strip()):
-        update.message.reply_text('Sorry we can not guess your ticker! Usage: /unsubscribe <ticker>')
-        return
+      update.message.reply_text('Sorry we can not guess your ticker! Usage: /unsubscribe <ticker>')
+      return
 
     job_name = f'{str(chat_id)}_{ticker}'
     job_removed = remove_job_if_exists(name=job_name, context= context)
     sent_signals.pop(job_name, None) 
     text = f'You successfully unsubscribed from {ticker}' if job_removed else f'You have no active signal for ticker {ticker}'
     update.message.reply_text(text)
+    if job_removed:
+      try:
+        db.deleteJob(job_name, ticker)
+      except Exception:
+        logger.error(f'Failed to delete job from db for chat: {chat_id}, ticker: {ticker}')   
 
 
 def runBBot(interval, start, tickers):
@@ -153,6 +163,14 @@ def runBBot(interval, start, tickers):
 def __runBBot__():
     runBBot(1, 240, ['BTCUSDT']) 
 
+def loadJobs(updater: Updater, db: DbManager) -> None:
+    jobs = db.getJobs()
+    if len(jobs) > 0:
+        for job in jobs:
+            job_name = f'{str(job[1])}_{job[2]}'
+            updater.job_queue.run_repeating(subscribe_response, 60, context=job[1], name=job_name)
+            logger.info(f'Add job from db {job}')
+    
 def main() -> None:
     """Run bot."""
 
@@ -162,7 +180,8 @@ def main() -> None:
     # Create the Updater and pass it your bot's token.
     token = env["TELEGRAM_BOT_TOKEN"]
     updater = Updater(token)
-
+    logger.info("Loading jobs from db...")
+    loadJobs(updater, db)
     # Get the dispatcher to register handlers
     dispatcher = updater.dispatcher
 
