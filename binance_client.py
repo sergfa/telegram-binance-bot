@@ -102,7 +102,7 @@ class BinanceClient:
              buy = frame['EMA_Fast'][-1] > frame['EMA_Signal'][-1] #and frame['EMA_Fast'][-2] <= frame['EMA_Signal'][-2]
              sell = frame['EMA_Fast'][-1] < frame['EMA_Signal'][-1] #and frame['EMA_Fast'][-2] >= frame['EMA_Signal'][-2]   
              self.logger.info(f'Fast: {frame["EMA_Fast"][-1]} Signal: { frame["EMA_Signal"][-1]}')
-        return {"buy":buy, "sell": sell}
+        return {"buy":buy, "sell": sell, "fast":  frame['EMA_Fast'][-1], "signal": frame['EMA_Signal'][-1]}
         
     def getAllTradableTickets(self):
         response = self.client.get_ticker()

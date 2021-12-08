@@ -46,7 +46,7 @@ def subscribe_response(context: CallbackContext) -> None:
     ticker = job.name.split("_")[1]
     prev_signal = sent_signals.get(job.name, '')
     logger.info(f'subscribe_response for ticket: {ticker}')
-    curr_data = tickers_ema.get(ticker, {"buy": False, "sell": False})
+    curr_data = tickers_ema.get(ticker, {"buy": False, "sell": False, "fast": -1, "signal": -1})
     logger.info(f'subscribe_response current ema data: {curr_data}, prev signal: { prev_signal}')
     if bbotHasError:
         logger.info(f'subscribe_response bot has error, response will not be sent')
@@ -92,6 +92,28 @@ def subscribe(update: Update, context: CallbackContext) -> None:
 
     except (IndexError, ValueError):
         update.message.reply_text('Usage: /subscribe <ticker>')
+
+def status(update: Update, context: CallbackContext) -> None:
+    """ Get status of the bot"""
+    global bbotHasError
+    status_message = f'Error: {bbotHasError}' 
+    update.message.reply_text(status_message)
+
+def ticker(update: Update, context: CallbackContext) -> None:
+    """Get ticker info."""
+    chat_id = update.message.chat_id
+    try:
+        # args[0] should contain the ticker
+        ticker = str(context.args[0])
+        if ticker not in supported_tickets:
+            update.message.reply_text(f'Sorry we can not get info about your ticker! Please use one of the supported tickets: {supported_tickets}')
+            return
+        curr_data = tickers_ema.get(ticker, {"buy": False, "sell": False, "fast": -1, "signal": -1})
+        text = f'Ticker {ticker} info: Buy: {curr_data["buy"]}, Sell: {curr_data["sell"]}, EMA fast: {curr_data["fast"]}, EMA Signal: {curr_data["signal"]}'
+        update.message.reply_text(text)
+    except (IndexError, ValueError):
+        update.message.reply_text('Usage: /ticker <ticker>')
+
 
 
 def unsubscribe(update: Update, context: CallbackContext) -> None:
@@ -149,6 +171,10 @@ def main() -> None:
     dispatcher.add_handler(CommandHandler("help", start))
     dispatcher.add_handler(CommandHandler("subscribe", subscribe))
     dispatcher.add_handler(CommandHandler("unsubscribe", unsubscribe))
+    dispatcher.add_handler(CommandHandler("status", status))
+    dispatcher.add_handler(CommandHandler("ticker", ticker))
+    
+    
 
     # Start the Bot
     logger.info('Start running telegram bot')
