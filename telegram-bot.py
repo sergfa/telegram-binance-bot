@@ -158,7 +158,7 @@ def runBBot(interval, start, tickers):
         except Exception:
             logger.exception("An exception was thrown!")
             bbotHasError = True   
-        time.sleep(60)
+        time.sleep(120)
 
 def __runBBot__():
     runBBot(1, 10, ['BTCUSDT']) 
