@@ -144,9 +144,9 @@ def unsubscribe(update: Update, context: CallbackContext) -> None:
 
 def runBBot(interval, start, tickers):
     global tickers_ema, bbotHasError, supported_tickets
-    bClient = BinanceClient(testnet=True)
+    bClient = BinanceClient(testnet=False)
     intervalStr = convertToInterval(interval,'h')
-    startStr=convertToStartTime(start, 'hours')
+    startStr=convertToStartTime(start, 'days')
     cycle = 0
     while (True):
         cycle +=1
@@ -161,7 +161,7 @@ def runBBot(interval, start, tickers):
         time.sleep(60)
 
 def __runBBot__():
-    runBBot(1, 240, ['BTCUSDT']) 
+    runBBot(1, 10, ['BTCUSDT']) 
 
 def loadJobs(updater: Updater, db: DbManager) -> None:
     jobs = db.getJobs()

@@ -151,9 +151,9 @@ if __name__ == '__main__':
     #print(open_orders) 
     prices = bClient.client.get_all_tickers()
     frame = pd.DataFrame(prices)
-    frame = frame.loc[ frame.symbol.str.contains("USDT"), :]
+    #frame = frame.loc[ frame.symbol.str.contains("USDT"), :]
     print(frame)
-    print(frame.describe())
+    bClient.ema_checker()
  #   {
  #   "symbol": "BTCUSDT",
  #   "orderId": 28,
