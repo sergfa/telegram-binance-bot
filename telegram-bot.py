@@ -4,7 +4,7 @@ import logging
 import time
 import threading
 
-from telegram import Update
+from telegram import Update,ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackContext
 
 from dotenv import dotenv_values
@@ -12,6 +12,7 @@ from dotenv import dotenv_values
 from binance_client import BinanceClient
 from binance_time_utils import convertToStartTime, convertToInterval
 from db_manager import DbManager
+from utils import symbols_alerts_to_table, symbols_to_table
 
 env = dotenv_values('.env')
 
@@ -30,6 +31,8 @@ bbotHasError = False
 supported_tickets = ['BTCUSDT']
 sent_signals = {}
 db = DbManager("bot.db")
+bClient = BinanceClient(testnet=False)
+    
 
 
 # Define a few command handlers. These usually take the two arguments update and
@@ -48,19 +51,41 @@ def subscribe_response(context: CallbackContext) -> None:
     global tickers_ema, bbotHasError, supported_tickets, sent_signals
     job = context.job
     ticker = job.name.split("_")[1]
+    chat = job.name.split("_")[0]
     prev_signal = sent_signals.get(job.name, '')
     logger.info(f'subscribe_response for ticket: {ticker}')
-    curr_data = tickers_ema.get(ticker, {"buy": False, "sell": False, "fast": -1, "signal": -1})
-    logger.info(f'subscribe_response current ema data: {curr_data}, prev signal: { prev_signal}')
-    if bbotHasError:
-        logger.info(f'subscribe_response bot has error, response will not be sent')
-        return
-    if curr_data['buy'] and prev_signal != 'buy':
-        context.bot.send_message(job.context, text=f'BUY ALERT {ticker}')
-        sent_signals[job.name] = 'buy'
-    elif curr_data['sell'] and  prev_signal != 'sell':
-        context.bot.send_message(job.context, text=f'SELL ALERT {ticker}')
-        sent_signals[job.name] = 'sell'
+    if ticker != 'all':
+        prev_signal = sent_signals.get(job.name, '')
+        curr_data = tickers_ema.get(ticker, {"buy": False, "sell": False, "fast": -1, "signal": -1})
+        logger.info(f'subscribe_response current ema data: {curr_data}, prev signal: { prev_signal}')
+        if bbotHasError:
+            logger.info(f'subscribe_response bot has error, response will not be sent')
+            return
+        if curr_data['buy'] and prev_signal != 'buy':
+            context.bot.send_message(job.context, text=f'BUY ALERT {ticker}')
+            sent_signals[job.name] = 'buy'
+        elif curr_data['sell'] and  prev_signal != 'sell':
+            context.bot.send_message(job.context, text=f'SELL ALERT {ticker}')
+            sent_signals[job.name] = 'sell'
+    else:
+        alert_data = []
+        for ticker_key in tickers_ema:
+             curr_data = tickers_ema.get(ticker_key, {"buy": False, "sell": False, "fast": -1, "signal": -1})
+             logger.info(f'{ticker_key} Curr data {curr_data}')
+             ticker_job_name = f'{chat}_{ticker_key}'
+             prev_signal = sent_signals.get(ticker_job_name, '')
+             if curr_data['buy'] and prev_signal != 'buy':
+                alert_data.append((ticker_key, True, False))
+                sent_signals[ticker_job_name] = 'buy'
+             elif curr_data['sell'] and  prev_signal != 'sell':
+                alert_data.append((ticker_key, False, True))
+                sent_signals[ticker_job_name] = 'sell'
+        if len(alert_data) > 0:
+             #update.message.reply_text(f'<pre>{table}</pre>', parse_mode=ParseMode.HTML)        
+             table = symbols_alerts_to_table(alert_data)
+             context.bot.send_message(job.context, text=f'<pre>{table}</pre>', parse_mode=ParseMode.HTML)
+        else:
+            logger.info(f'No new alert for job {job.name}')     
              
 
 def remove_job_if_exists(name: str, context: CallbackContext) -> bool:
@@ -79,8 +104,8 @@ def subscribe(update: Update, context: CallbackContext) -> None:
     try:
         # args[0] should contain the ticker
         ticker = str(context.args[0])
-        if ticker not in supported_tickets:
-            update.message.reply_text(f'Sorry we can not subscribe to your ticker! Please use one of the supported tickets: {supported_tickets}')
+        if ticker !='all' and ticker not in supported_tickets:
+            update.message.reply_text(f'Sorry we can not subscribe to your ticker! Please use one of the supported tickets or all,to get all supported tickers Use  /list')
             return
 
         job_name = f'{str(chat_id)}_{ticker}'
@@ -96,7 +121,7 @@ def subscribe(update: Update, context: CallbackContext) -> None:
         update.message.reply_text(text)
 
     except (IndexError, ValueError):
-        update.message.reply_text('Usage: /subscribe <ticker>')
+        update.message.reply_text('Usage: /subscribe <ticker|all>')
 
 def status(update: Update, context: CallbackContext) -> None:
     """ Get status of the bot"""
@@ -104,18 +129,31 @@ def status(update: Update, context: CallbackContext) -> None:
     status_message = f'Error: {bbotHasError}' 
     update.message.reply_text(status_message)
 
+def list(update: Update, context: CallbackContext) -> None:
+    """ Get all tickers"""
+    table = symbols_to_table(supported_tickets)
+    update.message.reply_text(f'<pre>{table}</pre>',  parse_mode=ParseMode.HTML)
+
 def ticker(update: Update, context: CallbackContext) -> None:
     """Get ticker info."""
     chat_id = update.message.chat_id
     try:
         # args[0] should contain the ticker
         ticker = str(context.args[0])
-        if ticker not in supported_tickets:
-            update.message.reply_text(f'Sorry we can not get info about your ticker! Please use one of the supported tickets: {supported_tickets}')
+        if ticker != 'all' and ticker not in supported_tickets:
+            update.message.reply_text(f'Sorry we can not get info about your ticker! Please use one of the supported tickets or all,To get all tickets use /list')
             return
-        curr_data = tickers_ema.get(ticker, {"buy": False, "sell": False, "fast": -1, "signal": -1})
-        text = f'Ticker {ticker} info: Buy: {curr_data["buy"]}, Sell: {curr_data["sell"]}, EMA fast: {curr_data["fast"]}, EMA Signal: {curr_data["signal"]}'
-        update.message.reply_text(text)
+        if ticker != 'all':
+            curr_data = tickers_ema.get(ticker, {"buy": False, "sell": False, "fast": -1, "signal": -1})
+            text = f'Ticker {ticker} info: Buy: {curr_data["buy"]}, Sell: {curr_data["sell"]}, EMA fast: {curr_data["fast"]}, EMA Signal: {curr_data["signal"]}'
+            update.message.reply_text(text)
+        else:
+            tickers_data = []
+            for ticker_key in tickers_ema:
+                curr_data = tickers_ema.get(ticker_key, {"buy": False, "sell": False, "fast": -1, "signal": -1}) 
+                tickers_data.append((ticker_key, curr_data["buy"], curr_data["sell"]))
+            table = symbols_alerts_to_table(tickers_data)
+            update.message.reply_text(f'<pre>{table}</pre>',  parse_mode=ParseMode.HTML)
     except (IndexError, ValueError):
         update.message.reply_text('Usage: /ticker <ticker>')
 
@@ -142,26 +180,25 @@ def unsubscribe(update: Update, context: CallbackContext) -> None:
         logger.error(f'Failed to delete job from db for chat: {chat_id}, ticker: {ticker}')   
 
 
-def runBBot(interval, start, tickers):
-    global tickers_ema, bbotHasError, supported_tickets
-    bClient = BinanceClient(testnet=False)
-    intervalStr = convertToInterval(interval,'h')
+def runBBot(interval, start, tickers, bClient):
+    global tickers_ema, bbotHasError
+    intervalStr = convertToInterval(interval,'d')
     startStr=convertToStartTime(start, 'days')
     cycle = 0
     while (True):
         cycle +=1
         logger.info(f'Running step #{cycle}')
         try:
-            tickers_ema = bClient.ema_checker(interval=intervalStr, start=startStr, tickers=tickers)
+            tickers_ema = bClient.ema_checker(interval=intervalStr, start=startStr, tickers=tickers[:100])
             logger.info(f'Ema results #{tickers_ema}')
             bbotHasError = False                   
         except Exception:
             logger.exception("An exception was thrown!")
             bbotHasError = True   
-        time.sleep(120)
+        time.sleep(3600)
 
 def __runBBot__():
-    runBBot(1, 10, ['BTCUSDT']) 
+    runBBot(1, 30, supported_tickets, bClient) 
 
 def loadJobs(updater: Updater, db: DbManager) -> None:
     jobs = db.getJobs()
@@ -173,8 +210,9 @@ def loadJobs(updater: Updater, db: DbManager) -> None:
     
 def main() -> None:
     """Run bot."""
-
+    global supported_tickets
     logger.info('Start running ema bot')
+    supported_tickets = bClient.get_usdt_tickers()
     run_app_thread = threading.Thread(target=__runBBot__)
     run_app_thread.start()
     # Create the Updater and pass it your bot's token.
@@ -192,6 +230,8 @@ def main() -> None:
     dispatcher.add_handler(CommandHandler("unsubscribe", unsubscribe))
     dispatcher.add_handler(CommandHandler("status", status))
     dispatcher.add_handler(CommandHandler("ticker", ticker))
+    dispatcher.add_handler(CommandHandler("list", list))
+    
     
     
 
