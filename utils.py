@@ -21,6 +21,15 @@ def symbols_alerts_to_table(data: List) -> str:
 
     return f'<pre>{table}</pre>'
 
+def split_list_to_chunks(data: List, chunkSize: int) -> List:
+    chunks = [data[x:x + chunkSize] for x in range(0, len(data), chunkSize)]
+    return chunks
+
+
+def list_to_tables(data:List, chunkSize: int, converter) -> List:
+    chunks = split_list_to_chunks(data, chunkSize)
+    tables = [ converter(chunk) for chunk in chunks]
+    return tables
 
 def boolAsYorNo(value: bool) -> str:
     return 'Y' if value  else 'N'

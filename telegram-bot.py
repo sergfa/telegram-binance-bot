@@ -12,7 +12,8 @@ from dotenv import dotenv_values
 from binance_client import BinanceClient
 from binance_time_utils import convertToStartTime, convertToInterval
 from db_manager import DbManager
-from utils import symbols_alerts_to_table, symbols_to_table
+from utils import symbols_alerts_to_table, symbols_to_table, list_to_tables
+
 
 env = dotenv_values('.env')
 
@@ -25,7 +26,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-
+MAX_ROWS_IN_TABLE = 50
 tickers_ema = {}
 bbotHasError = False
 supported_tickets = ['BTCUSDT']
@@ -82,8 +83,9 @@ def subscribe_response(context: CallbackContext) -> None:
                 sent_signals[ticker_job_name] = 'sell'
         if len(alert_data) > 0:
              #update.message.reply_text(f'<pre>{table}</pre>', parse_mode=ParseMode.HTML)        
-             table = symbols_alerts_to_table(alert_data)
-             context.bot.send_message(job.context, text=f'<pre>{table}</pre>', parse_mode=ParseMode.HTML)
+             tables = list_to_tables(alert_data, MAX_ROWS_IN_TABLE, symbols_alerts_to_table)
+             for table in tables:
+                context.bot.send_message(job.context, text=f'{table}', parse_mode=ParseMode.HTML)
         else:
             logger.info(f'No new alert for job {job.name}')     
              
@@ -131,8 +133,9 @@ def status(update: Update, context: CallbackContext) -> None:
 
 def list(update: Update, context: CallbackContext) -> None:
     """ Get all tickers"""
-    table = symbols_to_table(supported_tickets)
-    update.message.reply_text(f'<pre>{table}</pre>',  parse_mode=ParseMode.HTML)
+    tables  = list_to_tables(supported_tickets, MAX_ROWS_IN_TABLE, symbols_to_table) 
+    for table in tables:
+        update.message.reply_text(f'{table}',  parse_mode=ParseMode.HTML)
 
 def ticker(update: Update, context: CallbackContext) -> None:
     """Get ticker info."""
@@ -152,8 +155,10 @@ def ticker(update: Update, context: CallbackContext) -> None:
             for ticker_key in tickers_ema:
                 curr_data = tickers_ema.get(ticker_key, {"buy": False, "sell": False, "fast": -1, "signal": -1}) 
                 tickers_data.append((ticker_key, curr_data["buy"], curr_data["sell"]))
-            table = symbols_alerts_to_table(tickers_data)
-            update.message.reply_text(f'<pre>{table}</pre>',  parse_mode=ParseMode.HTML)
+            
+            tables = list_to_tables(tickers_data, MAX_ROWS_IN_TABLE, symbols_alerts_to_table)
+            for table in tables:
+                update.message.reply_text(f'{table}',  parse_mode=ParseMode.HTML)
     except (IndexError, ValueError):
         update.message.reply_text('Usage: /ticker <ticker>')
 
@@ -173,23 +178,22 @@ def unsubscribe(update: Update, context: CallbackContext) -> None:
     sent_signals.pop(job_name, None) 
     text = f'You successfully unsubscribed from {ticker}' if job_removed else f'You have no active signal for ticker {ticker}'
     update.message.reply_text(text)
-    if job_removed:
-      try:
-        db.deleteJob(job_name, ticker)
-      except Exception:
+    try:
+        db.deleteJob(str(chat_id), ticker)
+    except Exception:
         logger.error(f'Failed to delete job from db for chat: {chat_id}, ticker: {ticker}')   
 
 
-def runBBot(interval, start, tickers, bClient):
+def runBBot(config, interval, start, tickers, bClient):
     global tickers_ema, bbotHasError
     intervalStr = convertToInterval(interval,'d')
     startStr=convertToStartTime(start, 'days')
     cycle = 0
-    while (True):
+    while (config["keepRunning"]):
         cycle +=1
         logger.info(f'Running step #{cycle}')
         try:
-            tickers_ema = bClient.ema_checker(interval=intervalStr, start=startStr, tickers=tickers[:200])
+            tickers_ema = bClient.ema_checker(interval=intervalStr, start=startStr, tickers=tickers)
             logger.info(f'Ema results #{tickers_ema}')
             bbotHasError = False                   
         except Exception:
@@ -197,8 +201,8 @@ def runBBot(interval, start, tickers, bClient):
             bbotHasError = True   
         time.sleep(3600)
 
-def __runBBot__():
-    runBBot(1, 30, supported_tickets, bClient) 
+def __runBBot__(config):
+    runBBot(config,1, 30, supported_tickets, bClient) 
 
 def loadJobs(updater: Updater, db: DbManager) -> None:
     jobs = db.getJobs()
@@ -211,10 +215,14 @@ def loadJobs(updater: Updater, db: DbManager) -> None:
 def main() -> None:
     """Run bot."""
     global supported_tickets
+    
     logger.info('Start running ema bot')
-    supported_tickets = bClient.get_usdt_tickers()
-    run_app_thread = threading.Thread(target=__runBBot__)
+    supported_tickets = bClient.get_usdt_tickers()[:10]
+    emaBotConfig = {"keepRunning": True}
+    run_app_thread = threading.Thread(target=__runBBot__, args=(emaBotConfig,))
     run_app_thread.start()
+    
+    
     # Create the Updater and pass it your bot's token.
     token = env["TELEGRAM_BOT_TOKEN"]
     updater = Updater(token)
@@ -243,6 +251,8 @@ def main() -> None:
     # SIGABRT. This should be used most of the time, since start_polling() is
     # non-blocking and will stop the bot gracefully.
     updater.idle()
+    emaBotConfig["keepRunning"] = False
+    logger.info(f'Exiting from telegram bot...')
 
 
 if __name__ == '__main__':
