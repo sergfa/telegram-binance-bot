@@ -111,7 +111,7 @@ def subscribe(update: Update, context: CallbackContext) -> None:
         job_name = f'{str(chat_id)}_{ticker}'
         job_removed = remove_job_if_exists(name=job_name, context=context)
         # context.job_queue.run_once(alarm, due, context=chat_id, name=str(chat_id))
-        context.job_queue.run_repeating(subscribe_response, 60, context=chat_id, name=job_name)
+        context.job_queue.run_repeating(subscribe_response, 300, context=chat_id, name=job_name)
         db.insertJob(str(chat_id), ticker)
         
 
@@ -189,7 +189,7 @@ def runBBot(interval, start, tickers, bClient):
         cycle +=1
         logger.info(f'Running step #{cycle}')
         try:
-            tickers_ema = bClient.ema_checker(interval=intervalStr, start=startStr, tickers=tickers[:100])
+            tickers_ema = bClient.ema_checker(interval=intervalStr, start=startStr, tickers=tickers[:200])
             logger.info(f'Ema results #{tickers_ema}')
             bbotHasError = False                   
         except Exception:
@@ -205,7 +205,7 @@ def loadJobs(updater: Updater, db: DbManager) -> None:
     if len(jobs) > 0:
         for job in jobs:
             job_name = f'{str(job[1])}_{job[2]}'
-            updater.job_queue.run_repeating(subscribe_response, 60, context=job[1], name=job_name)
+            updater.job_queue.run_repeating(subscribe_response, 300, context=job[1], name=job_name)
             logger.info(f'Add job from db {job}')
     
 def main() -> None:
