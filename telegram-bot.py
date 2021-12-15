@@ -217,7 +217,7 @@ def main() -> None:
     global supported_tickets
     
     logger.info('Start running ema bot')
-    supported_tickets = bClient.get_usdt_tickers()[:10]
+    supported_tickets = bClient.get_usdt_tickers()
     emaBotConfig = {"keepRunning": True}
     run_app_thread = threading.Thread(target=__runBBot__, args=(emaBotConfig,))
     run_app_thread.start()
